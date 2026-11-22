@@ -1,0 +1,477 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public directory profile and presence state for an authenticated KRYPT member.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "displayName": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatarBase64": { "type": "string" },
+        "accountStatus": { "type": "string", "enum": ["ACTIVE", "WARNED", "SUSPENDED", "BANNED"] },
+        "role": { "type": "string", "enum": ["OWNER", "MEMBER"] },
+        "onlineVisible": { "type": "boolean" },
+        "ghostModeActive": { "type": "boolean" },
+        "ghostModeUntilEpochMs": { "type": "integer" },
+        "readReceiptsEnabled": { "type": "boolean" },
+        "lastSeenAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "username", "displayName", "accountStatus", "role", "onlineVisible", "ghostModeActive", "readReceiptsEnabled", "createdAt", "updatedAt"]
+    },
+    "UserPrivateAccount": {
+      "title": "UserPrivateAccount",
+      "description": "Strictly isolated PII, blocked list, and notification preferences owned by the user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "passHashUsed": { "type": "string" },
+        "blockedUids": { "type": "array" },
+        "notifyMessages": { "type": "boolean" },
+        "notifyGroups": { "type": "boolean" },
+        "notifyCalls": { "type": "boolean" },
+        "notifyAnnouncements": { "type": "boolean" },
+        "hideLockScreenPreview": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "blockedUids", "notifyMessages", "notifyGroups", "notifyCalls", "notifyAnnouncements", "hideLockScreenPreview", "createdAt", "updatedAt"]
+    },
+    "UserSession": {
+      "title": "UserSession",
+      "description": "Authenticated device session entry for device/session management.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "deviceModel": { "type": "string" },
+        "platform": { "type": "string" },
+        "appVersion": { "type": "string" },
+        "revoked": { "type": "boolean" },
+        "lastActiveAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "deviceName", "deviceModel", "platform", "appVersion", "revoked", "lastActiveAt", "createdAt", "updatedAt"]
+    },
+    "UserNotification": {
+      "title": "UserNotification",
+      "description": "In-app notification entry scoped to the target user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "category": { "type": "string", "enum": ["MESSAGE", "GROUP", "CALL", "ANNOUNCEMENT", "MODERATION", "SECURITY"] },
+        "targetType": { "type": "string" },
+        "targetId": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "body", "category", "read", "createdAt", "updatedAt"]
+    },
+    "KeyBundle": {
+      "title": "KeyBundle",
+      "description": "Public ECDH P-256 identity and prekey bundle for E2EE session establishment.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "identityKeyPub": { "type": "string" },
+        "signedPreKeyPub": { "type": "string" },
+        "signedPreKeyId": { "type": "integer" },
+        "fingerprint": { "type": "string" },
+        "oneTimePreKeys": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "identityKeyPub", "signedPreKeyPub", "signedPreKeyId", "fingerprint", "createdAt", "updatedAt"]
+    },
+    "AccessPass": {
+      "title": "AccessPass",
+      "description": "Hashed Special Access Pass record (raw pass codes are never stored here).",
+      "type": "object",
+      "properties": {
+        "passHash": { "type": "string" },
+        "label": { "type": "string" },
+        "passType": { "type": "string", "enum": ["SINGLE_USE", "MULTI_USE"] },
+        "maxUses": { "type": "integer" },
+        "usedCount": { "type": "integer" },
+        "revoked": { "type": "boolean" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["passHash", "label", "passType", "maxUses", "usedCount", "revoked", "expiresAt", "createdBy", "createdAt", "updatedAt"]
+    },
+    "OwnerPassVault": {
+      "title": "OwnerPassVault",
+      "description": "Owner-only pass management reference storing issued pass code for sharing.",
+      "type": "object",
+      "properties": {
+        "passHash": { "type": "string" },
+        "passCode": { "type": "string" },
+        "label": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["passHash", "passCode", "label", "createdBy", "createdAt"]
+    },
+    "AccessPassRedemption": {
+      "title": "AccessPassRedemption",
+      "description": "Atomic redemption record preventing duplicate pass use by the same account.",
+      "type": "object",
+      "properties": {
+        "passHash": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "redeemedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["passHash", "userId", "username", "redeemedAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "One-to-one encrypted conversation metadata and state.",
+      "type": "object",
+      "properties": {
+        "participantUids": { "type": "array" },
+        "lastMessageCiphertext": { "type": "string" },
+        "lastMessageIv": { "type": "string" },
+        "lastMessageEphemeralPub": { "type": "string" },
+        "lastMessageSenderId": { "type": "string" },
+        "lastMessagePreviewHint": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "pinnedByUids": { "type": "array" },
+        "archivedByUids": { "type": "array" },
+        "mutedByUids": { "type": "array" },
+        "typingUid": { "type": "string" },
+        "typingAt": { "type": "string", "format": "date-time" },
+        "unreadCounts": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participantUids", "pinnedByUids", "archivedByUids", "mutedByUids", "unreadCounts", "createdAt", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Encrypted one-to-one or group message payload with reactions, reply, and read state.",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "groupId": { "type": "string" },
+        "participantUids": { "type": "array" },
+        "memberUids": { "type": "array" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "ciphertext": { "type": "string" },
+        "iv": { "type": "string" },
+        "ephemeralPubKey": { "type": "string" },
+        "senderKeyId": { "type": "string" },
+        "keyVersion": { "type": "integer" },
+        "messageType": { "type": "string", "enum": ["TEXT", "IMAGE", "VIDEO", "DOCUMENT", "VOICE"] },
+        "mediaName": { "type": "string" },
+        "mediaMime": { "type": "string" },
+        "mediaDataBase64": { "type": "string" },
+        "mediaDurationMs": { "type": "integer" },
+        "replyToMessageId": { "type": "string" },
+        "replyToPreview": { "type": "string" },
+        "forwardedFrom": { "type": "string" },
+        "reactions": { "type": "object" },
+        "edited": { "type": "boolean" },
+        "deleted": { "type": "boolean" },
+        "pinned": { "type": "boolean" },
+        "deliveredToUids": { "type": "array" },
+        "readByUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "ciphertext", "iv", "messageType", "edited", "deleted", "pinned", "readByUids", "createdAt", "updatedAt"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "Community group configuration, roles, slow mode, and invite settings.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "iconBase64": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "adminUids": { "type": "array" },
+        "moderatorUids": { "type": "array" },
+        "discoverable": { "type": "boolean" },
+        "locked": { "type": "boolean" },
+        "suspended": { "type": "boolean" },
+        "slowModeSeconds": { "type": "integer" },
+        "inviteCode": { "type": "string" },
+        "inviteExpiresAt": { "type": "string", "format": "date-time" },
+        "announcementText": { "type": "string" },
+        "pinnedMessageId": { "type": "string" },
+        "mutedByUids": { "type": "array" },
+        "lastMessagePreview": { "type": "string" },
+        "lastMessageSenderId": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "ownerId", "memberUids", "adminUids", "moderatorUids", "discoverable", "locked", "suspended", "slowModeSeconds", "createdAt", "updatedAt"]
+    },
+    "GroupMember": {
+      "title": "GroupMember",
+      "description": "Role and posting permission record for a member in a group.",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["OWNER", "ADMIN", "MODERATOR", "MEMBER"] },
+        "muted": { "type": "boolean" },
+        "canPost": { "type": "boolean" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["groupId", "userId", "role", "muted", "canPost", "joinedAt", "updatedAt"]
+    },
+    "GroupSenderKey": {
+      "title": "GroupSenderKey",
+      "description": "ECDH-wrapped group sender key distributed to an authorized group member.",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "recipientUid": { "type": "string" },
+        "keyEpoch": { "type": "integer" },
+        "wrappedKeyCiphertext": { "type": "string" },
+        "wrappedKeyIv": { "type": "string" },
+        "senderEphemeralPubKey": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["groupId", "senderUid", "recipientUid", "keyEpoch", "wrappedKeyCiphertext", "wrappedKeyIv", "senderEphemeralPubKey", "createdAt"]
+    },
+    "GroupInvite": {
+      "title": "GroupInvite",
+      "description": "Direct invite code index for joining private non-discoverable groups without enumeration.",
+      "type": "object",
+      "properties": {
+        "inviteCode": { "type": "string" },
+        "groupId": { "type": "string" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["inviteCode", "groupId", "expiresAt", "createdBy", "createdAt"]
+    },
+    "CallSession": {
+      "title": "CallSession",
+      "description": "WebRTC signaling state and call history record.",
+      "type": "object",
+      "properties": {
+        "callerId": { "type": "string" },
+        "callerName": { "type": "string" },
+        "calleeId": { "type": "string" },
+        "calleeName": { "type": "string" },
+        "participantUids": { "type": "array" },
+        "callType": { "type": "string", "enum": ["VOICE", "VIDEO"] },
+        "status": { "type": "string", "enum": ["RINGING", "ACTIVE", "ENDED", "MISSED", "DECLINED"] },
+        "sdpOffer": { "type": "string" },
+        "sdpAnswer": { "type": "string" },
+        "iceCandidates": { "type": "array" },
+        "durationSeconds": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["callerId", "calleeId", "participantUids", "callType", "status", "durationSeconds", "createdAt", "updatedAt"]
+    },
+    "SafetyReport": {
+      "title": "SafetyReport",
+      "description": "Community safety incident report with preserved evidence snapshot and appeal flow.",
+      "type": "object",
+      "properties": {
+        "reporterId": { "type": "string" },
+        "targetType": { "type": "string", "enum": ["USER", "MESSAGE", "GROUP"] },
+        "targetId": { "type": "string" },
+        "targetUserId": { "type": "string" },
+        "groupId": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "reason": { "type": "string" },
+        "details": { "type": "string" },
+        "evidenceSnapshot": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "UNDER_REVIEW", "RESOLVED", "DISMISSED", "APPEALED"] },
+        "appealText": { "type": "string" },
+        "moderatorNote": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reporterId", "targetType", "targetId", "reason", "status", "createdAt", "updatedAt"]
+    },
+    "ModerationAction": {
+      "title": "ModerationAction",
+      "description": "Moderator/Owner enforcement record (warning, suspension, ban, content removal).",
+      "type": "object",
+      "properties": {
+        "targetUserId": { "type": "string" },
+        "targetGroupId": { "type": "string" },
+        "actionType": { "type": "string" },
+        "reason": { "type": "string" },
+        "moderatorId": { "type": "string" },
+        "reportId": { "type": "string" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actionType", "reason", "moderatorId", "createdAt"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Global platform announcement published by the Owner.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "priority": { "type": "string", "enum": ["NORMAL", "CRITICAL", "MAINTENANCE"] },
+        "authorId": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "body", "priority", "authorId", "active", "createdAt", "updatedAt"]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Immutable audit log entry recording sensitive Owner and Safety Admin actions.",
+      "type": "object",
+      "properties": {
+        "adminId": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "targetType": { "type": "string" },
+        "targetId": { "type": "string" },
+        "reason": { "type": "string" },
+        "metadata": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["adminId", "adminEmail", "action", "targetType", "targetId", "reason", "createdAt"]
+    },
+    "PlatformSettings": {
+      "title": "PlatformSettings",
+      "description": "Global platform configuration controlled by the Owner.",
+      "type": "object",
+      "properties": {
+        "maintenanceMode": { "type": "boolean" },
+        "registrationEnabled": { "type": "boolean" },
+        "requirePassForSignup": { "type": "boolean" },
+        "maxPassAttemptsPerHour": { "type": "integer" },
+        "announcementBanner": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["maintenanceMode", "registrationEnabled", "requirePassForSignup", "maxPassAttemptsPerHour", "updatedBy", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator role assignment.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["OWNER", "SAFETY_ADMIN"] },
+        "grantedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "role", "grantedBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Member directory profile and online/ghost presence flags."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateAccount" },
+      "description": "User PII, blocked users, and notification preferences."
+    },
+    "/users/{userId}/sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/UserSession" },
+      "description": "User device sessions."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/UserNotification" },
+      "description": "User in-app notifications."
+    },
+    "/key_bundles/{userId}": {
+      "schema": { "$ref": "#/entities/KeyBundle" },
+      "description": "Public E2EE key bundles."
+    },
+    "/access_passes/{passHash}": {
+      "schema": { "$ref": "#/entities/AccessPass" },
+      "description": "Hashed Special Access Passes."
+    },
+    "/owner_pass_vault/{passHash}": {
+      "schema": { "$ref": "#/entities/OwnerPassVault" },
+      "description": "Owner-only pass code reference vault."
+    },
+    "/access_pass_redemptions/{redemptionId}": {
+      "schema": { "$ref": "#/entities/AccessPassRedemption" },
+      "description": "Special Access Pass redemption records."
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "One-to-one encrypted conversations."
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "One-to-one encrypted messages."
+    },
+    "/groups/{groupId}": {
+      "schema": { "$ref": "#/entities/Group" },
+      "description": "Community groups."
+    },
+    "/groups/{groupId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/GroupMember" },
+      "description": "Group member roles and permissions."
+    },
+    "/groups/{groupId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Group encrypted messages."
+    },
+    "/groups/{groupId}/sender_keys/{keyId}": {
+      "schema": { "$ref": "#/entities/GroupSenderKey" },
+      "description": "Wrapped group sender keys."
+    },
+    "/group_invites/{inviteCode}": {
+      "schema": { "$ref": "#/entities/GroupInvite" },
+      "description": "Direct group invite code lookup documents."
+    },
+    "/calls/{callId}": {
+      "schema": { "$ref": "#/entities/CallSession" },
+      "description": "WebRTC signaling and call records."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/SafetyReport" },
+      "description": "Safety reports and appeals."
+    },
+    "/moderation_actions/{actionId}": {
+      "schema": { "$ref": "#/entities/ModerationAction" },
+      "description": "Moderation enforcement actions."
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Platform global announcements."
+    },
+    "/admin_audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AdminAuditLog" },
+      "description": "Immutable admin/owner audit log."
+    },
+    "/platform_settings/{docId}": {
+      "schema": { "$ref": "#/entities/PlatformSettings" },
+      "description": "Platform-wide governance settings."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Owner and safety admin registry."
+    }
+  }
+}

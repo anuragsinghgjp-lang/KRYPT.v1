@@ -1,0 +1,607 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL HARDENED HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBootstrappedOwner() {
+      return isSignedIn() &&
+             request.auth.token.email_verified == true &&
+             request.auth.token.email == 'anuragsinghgjp@gmail.com';
+    }
+
+    function isOwner() {
+      return isBootstrappedOwner() ||
+             (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isSafeOptionalString(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isSafeStringList(data, key, maxItems) {
+      return data[key] is list &&
+             data[key].size() <= maxItems &&
+             (data[key].size() == 0 || data[key][0] is string);
+    }
+
+    // --- ENTITY VALIDATION HELPERS ---
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.username is string && data.username.size() >= 3 && data.username.size() <= 30 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 50 &&
+             isSafeOptionalString(data, 'bio', 240) &&
+             isSafeOptionalString(data, 'avatarBase64', 150000) &&
+             data.accountStatus in ['ACTIVE', 'WARNED', 'SUSPENDED', 'BANNED'] &&
+             data.role in ['OWNER', 'MEMBER'] &&
+             data.onlineVisible is bool &&
+             data.ghostModeActive is bool &&
+             (!('ghostModeUntilEpochMs' in data) || data.ghostModeUntilEpochMs is int) &&
+             data.readReceiptsEnabled is bool &&
+             (!('lastSeenAt' in data) || (data.lastSeenAt is timestamp && data.lastSeenAt <= request.time)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPrivateAccount(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.email is string && data.email.size() <= 200 &&
+             isSafeOptionalString(data, 'passHashUsed', 128) &&
+             isSafeStringList(data, 'blockedUids', 200) &&
+             data.notifyMessages is bool &&
+             data.notifyGroups is bool &&
+             data.notifyCalls is bool &&
+             data.notifyAnnouncements is bool &&
+             data.hideLockScreenPreview is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidUserSession(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.deviceName is string && data.deviceName.size() <= 100 &&
+             data.deviceModel is string && data.deviceModel.size() <= 100 &&
+             data.platform is string && data.platform.size() <= 40 &&
+             data.appVersion is string && data.appVersion.size() <= 30 &&
+             data.revoked is bool &&
+             data.lastActiveAt is timestamp && data.lastActiveAt <= request.time &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidNotification(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.body is string && data.body.size() >= 1 && data.body.size() <= 500 &&
+             data.category in ['MESSAGE', 'GROUP', 'CALL', 'ANNOUNCEMENT', 'MODERATION', 'SECURITY'] &&
+             isSafeOptionalString(data, 'targetType', 40) &&
+             isSafeOptionalString(data, 'targetId', 128) &&
+             data.read is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidKeyBundle(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.identityKeyPub is string && data.identityKeyPub.size() >= 16 && data.identityKeyPub.size() <= 512 &&
+             data.signedPreKeyPub is string && data.signedPreKeyPub.size() >= 16 && data.signedPreKeyPub.size() <= 512 &&
+             data.signedPreKeyId is int && data.signedPreKeyId >= 0 &&
+             data.fingerprint is string && data.fingerprint.size() >= 8 && data.fingerprint.size() <= 128 &&
+             (!('oneTimePreKeys' in data) || isSafeStringList(data, 'oneTimePreKeys', 20)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAccessPass(data) {
+      return data.passHash is string && data.passHash.size() == 64 &&
+             data.label is string && data.label.size() >= 1 && data.label.size() <= 60 &&
+             data.passType in ['SINGLE_USE', 'MULTI_USE'] &&
+             data.maxUses is int && data.maxUses >= 1 && data.maxUses <= 10000 &&
+             data.usedCount is int && data.usedCount >= 0 && data.usedCount <= data.maxUses &&
+             data.revoked is bool &&
+             data.expiresAt is timestamp &&
+             data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPassRedemptionAction(passHash) {
+      return existing().revoked == false &&
+             existing().usedCount < existing().maxUses &&
+             existing().expiresAt > request.time &&
+             incoming().usedCount == existing().usedCount + 1 &&
+             incoming().diff(existing()).affectedKeys().hasOnly(['usedCount', 'updatedAt']) &&
+             existsAfter(/databases/$(database)/documents/access_pass_redemptions/$(passHash + '_' + request.auth.uid));
+    }
+
+    function isValidRedemption(data) {
+      return data.passHash is string && data.passHash.size() == 64 &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.username is string && data.username.size() >= 1 && data.username.size() <= 50 &&
+             data.redeemedAt is timestamp && data.redeemedAt <= request.time;
+    }
+
+    function isValidConversation(data) {
+      return isSafeStringList(data, 'participantUids', 2) &&
+             data.participantUids.size() == 2 &&
+             isSafeOptionalString(data, 'lastMessageCiphertext', 8000) &&
+             isSafeOptionalString(data, 'lastMessageIv', 128) &&
+             isSafeOptionalString(data, 'lastMessageEphemeralPub', 512) &&
+             isSafeOptionalString(data, 'lastMessageSenderId', 128) &&
+             isSafeOptionalString(data, 'lastMessagePreviewHint', 120) &&
+             (!('lastMessageAt' in data) || (data.lastMessageAt is timestamp && data.lastMessageAt <= request.time)) &&
+             isSafeStringList(data, 'pinnedByUids', 2) &&
+             isSafeStringList(data, 'archivedByUids', 2) &&
+             isSafeStringList(data, 'mutedByUids', 2) &&
+             isSafeOptionalString(data, 'typingUid', 128) &&
+             (!('typingAt' in data) || (data.typingAt is timestamp && data.typingAt <= request.time)) &&
+             data.unreadCounts is map &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidDirectMessage(data, convId) {
+      return data.conversationId == convId &&
+             isSafeStringList(data, 'participantUids', 2) &&
+             data.participantUids.size() == 2 &&
+             data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
+             data.ciphertext is string && data.ciphertext.size() >= 1 && data.ciphertext.size() <= 32000 &&
+             data.iv is string && data.iv.size() >= 8 && data.iv.size() <= 128 &&
+             isSafeOptionalString(data, 'ephemeralPubKey', 512) &&
+             (!('keyVersion' in data) || data.keyVersion is int) &&
+             data.messageType in ['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT', 'VOICE'] &&
+             isSafeOptionalString(data, 'mediaName', 160) &&
+             isSafeOptionalString(data, 'mediaMime', 100) &&
+             isSafeOptionalString(data, 'mediaDataBase64', 450000) &&
+             (!('mediaDurationMs' in data) || data.mediaDurationMs is int) &&
+             isSafeOptionalString(data, 'replyToMessageId', 128) &&
+             isSafeOptionalString(data, 'replyToPreview', 200) &&
+             isSafeOptionalString(data, 'forwardedFrom', 100) &&
+             (!('reactions' in data) || data.reactions is map) &&
+             data.edited is bool &&
+             data.deleted is bool &&
+             data.pinned is bool &&
+             isSafeStringList(data, 'deliveredToUids', 2) &&
+             isSafeStringList(data, 'readByUids', 2) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGroup(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 60 &&
+             isSafeOptionalString(data, 'description', 300) &&
+             isSafeOptionalString(data, 'iconBase64', 150000) &&
+             data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             isSafeStringList(data, 'memberUids', 100) &&
+             isSafeStringList(data, 'adminUids', 50) &&
+             isSafeStringList(data, 'moderatorUids', 50) &&
+             data.discoverable is bool &&
+             data.locked is bool &&
+             data.suspended is bool &&
+             data.slowModeSeconds is int && data.slowModeSeconds >= 0 && data.slowModeSeconds <= 3600 &&
+             isSafeOptionalString(data, 'inviteCode', 32) &&
+             (!('inviteExpiresAt' in data) || data.inviteExpiresAt is timestamp) &&
+             isSafeOptionalString(data, 'announcementText', 400) &&
+             isSafeOptionalString(data, 'pinnedMessageId', 128) &&
+             isSafeStringList(data, 'mutedByUids', 100) &&
+             isSafeOptionalString(data, 'lastMessagePreview', 160) &&
+             isSafeOptionalString(data, 'lastMessageSenderId', 128) &&
+             (!('lastMessageAt' in data) || (data.lastMessageAt is timestamp && data.lastMessageAt <= request.time)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGroupMember(data, grpId) {
+      return data.groupId == grpId &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.role in ['OWNER', 'ADMIN', 'MODERATOR', 'MEMBER'] &&
+             data.muted is bool &&
+             data.canPost is bool &&
+             data.joinedAt is timestamp && data.joinedAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGroupMessage(data, grpId) {
+      return data.groupId == grpId &&
+             isSafeStringList(data, 'memberUids', 100) &&
+             data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
+             isSafeOptionalString(data, 'senderName', 60) &&
+             data.ciphertext is string && data.ciphertext.size() >= 1 && data.ciphertext.size() <= 32000 &&
+             data.iv is string && data.iv.size() >= 8 && data.iv.size() <= 128 &&
+             isSafeOptionalString(data, 'senderKeyId', 128) &&
+             data.messageType in ['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT', 'VOICE'] &&
+             isSafeOptionalString(data, 'mediaName', 160) &&
+             isSafeOptionalString(data, 'mediaMime', 100) &&
+             isSafeOptionalString(data, 'mediaDataBase64', 450000) &&
+             (!('mediaDurationMs' in data) || data.mediaDurationMs is int) &&
+             isSafeOptionalString(data, 'replyToMessageId', 128) &&
+             isSafeOptionalString(data, 'replyToPreview', 200) &&
+             isSafeOptionalString(data, 'forwardedFrom', 100) &&
+             (!('reactions' in data) || data.reactions is map) &&
+             data.edited is bool &&
+             data.deleted is bool &&
+             data.pinned is bool &&
+             isSafeStringList(data, 'readByUids', 100) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGroupSenderKey(data, grpId) {
+      return data.groupId == grpId &&
+             data.senderUid is string && data.senderUid.size() >= 1 && data.senderUid.size() <= 128 &&
+             data.recipientUid is string && data.recipientUid.size() >= 1 && data.recipientUid.size() <= 128 &&
+             data.keyEpoch is int && data.keyEpoch >= 1 &&
+             data.wrappedKeyCiphertext is string && data.wrappedKeyCiphertext.size() >= 8 && data.wrappedKeyCiphertext.size() <= 2048 &&
+             data.wrappedKeyIv is string && data.wrappedKeyIv.size() >= 8 && data.wrappedKeyIv.size() <= 128 &&
+             data.senderEphemeralPubKey is string && data.senderEphemeralPubKey.size() >= 16 && data.senderEphemeralPubKey.size() <= 512 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidGroupInvite(data, code) {
+      return data.inviteCode == code &&
+             data.groupId is string && isValidId(data.groupId) &&
+             data.expiresAt is timestamp &&
+             data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isGroupManagerAfter(groupId) {
+      let grp = getAfter(/databases/$(database)/documents/groups/$(groupId)).data;
+      return request.auth.uid == grp.ownerId || request.auth.uid in grp.adminUids;
+    }
+
+    function isValidCall(data) {
+      return data.callerId is string && data.callerId.size() >= 1 && data.callerId.size() <= 128 &&
+             isSafeOptionalString(data, 'callerName', 60) &&
+             data.calleeId is string && data.calleeId.size() >= 1 && data.calleeId.size() <= 128 &&
+             isSafeOptionalString(data, 'calleeName', 60) &&
+             isSafeStringList(data, 'participantUids', 2) &&
+             data.participantUids.size() == 2 &&
+             data.callType in ['VOICE', 'VIDEO'] &&
+             data.status in ['RINGING', 'ACTIVE', 'ENDED', 'MISSED', 'DECLINED'] &&
+             isSafeOptionalString(data, 'sdpOffer', 12000) &&
+             isSafeOptionalString(data, 'sdpAnswer', 12000) &&
+             (!('iceCandidates' in data) || isSafeStringList(data, 'iceCandidates', 50)) &&
+             data.durationSeconds is int && data.durationSeconds >= 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidReport(data) {
+      return data.reporterId is string && data.reporterId.size() >= 1 && data.reporterId.size() <= 128 &&
+             data.targetType in ['USER', 'MESSAGE', 'GROUP'] &&
+             data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 &&
+             isSafeOptionalString(data, 'targetUserId', 128) &&
+             isSafeOptionalString(data, 'groupId', 128) &&
+             isSafeOptionalString(data, 'conversationId', 128) &&
+             data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 120 &&
+             isSafeOptionalString(data, 'details', 1000) &&
+             isSafeOptionalString(data, 'evidenceSnapshot', 2000) &&
+             data.status in ['PENDING', 'UNDER_REVIEW', 'RESOLVED', 'DISMISSED', 'APPEALED'] &&
+             isSafeOptionalString(data, 'appealText', 1000) &&
+             isSafeOptionalString(data, 'moderatorNote', 500) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidModerationAction(data) {
+      return isSafeOptionalString(data, 'targetUserId', 128) &&
+             isSafeOptionalString(data, 'targetGroupId', 128) &&
+             data.actionType in ['WARN', 'SUSPEND', 'BAN', 'RESTORE', 'REMOVE_CONTENT', 'LOCK_GROUP', 'SUSPEND_GROUP'] &&
+             data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 500 &&
+             data.moderatorId is string && data.moderatorId.size() >= 1 && data.moderatorId.size() <= 128 &&
+             isSafeOptionalString(data, 'reportId', 128) &&
+             (!('expiresAt' in data) || data.expiresAt is timestamp) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidAnnouncement(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.body is string && data.body.size() >= 1 && data.body.size() <= 2000 &&
+             data.priority in ['NORMAL', 'CRITICAL', 'MAINTENANCE'] &&
+             data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+             data.active is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAuditLog(data) {
+      return data.adminId is string && data.adminId.size() >= 1 && data.adminId.size() <= 128 &&
+             data.adminEmail is string && data.adminEmail.size() >= 1 && data.adminEmail.size() <= 200 &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 80 &&
+             data.targetType is string && data.targetType.size() >= 1 && data.targetType.size() <= 40 &&
+             data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 &&
+             data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 500 &&
+             isSafeOptionalString(data, 'metadata', 1000) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidPlatformSettings(data) {
+      return data.maintenanceMode is bool &&
+             data.registrationEnabled is bool &&
+             data.requirePassForSignup is bool &&
+             data.maxPassAttemptsPerHour is int && data.maxPassAttemptsPerHour >= 1 && data.maxPassAttemptsPerHour <= 100 &&
+             isSafeOptionalString(data, 'announcementBanner', 300) &&
+             data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAdminRecord(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+             data.role in ['OWNER', 'SAFETY_ADMIN'] &&
+             data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // --- COLLECTIONS ---
+
+    // 1. User Profiles (Public-to-members directory, PII strictly isolated in /private)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn();
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().accountStatus == 'ACTIVE' &&
+                       (incoming().role == 'MEMBER' || (incoming().role == 'OWNER' && isBootstrappedOwner())) &&
+                       incoming().keys().hasAll(['userId', 'username', 'displayName', 'accountStatus', 'role', 'onlineVisible', 'ghostModeActive', 'readReceiptsEnabled', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isOwner() ||
+                         (
+                           request.auth.uid == userId &&
+                           incoming().role == existing().role &&
+                           incoming().accountStatus == existing().accountStatus &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['username', 'displayName', 'bio', 'avatarBase64', 'onlineVisible', 'ghostModeActive', 'ghostModeUntilEpochMs', 'readReceiptsEnabled', 'lastSeenAt', 'updatedAt'])
+                         )
+                       );
+
+      allow delete: if isOwner() && isValidId(userId);
+
+      // Strictly isolated PII & private settings
+      match /private/{docId} {
+        allow get: if isSignedIn() && isValidId(docId) && (request.auth.uid == userId || isOwner());
+        allow list: if isSignedIn() && (request.auth.uid == userId || isOwner());
+        allow create: if isSignedIn() && isValidId(docId) && request.auth.uid == userId && incoming().userId == userId && isValidPrivateAccount(incoming());
+        allow update: if isSignedIn() && isValidId(docId) && (request.auth.uid == userId || isOwner()) && incoming().userId == existing().userId && incoming().createdAt == existing().createdAt && isValidPrivateAccount(incoming());
+        allow delete: if isOwner() && isValidId(docId);
+      }
+
+      // User active device sessions
+      match /sessions/{sessionId} {
+        allow get: if isSignedIn() && isValidId(sessionId) && (request.auth.uid == userId || isOwner());
+        allow list: if isSignedIn() && (request.auth.uid == userId || isOwner());
+        allow create: if isSignedIn() && isValidId(sessionId) && request.auth.uid == userId && incoming().userId == userId && isValidUserSession(incoming());
+        allow update: if isSignedIn() && isValidId(sessionId) && (request.auth.uid == userId || isOwner()) && incoming().userId == existing().userId && incoming().createdAt == existing().createdAt && isValidUserSession(incoming());
+        allow delete: if isSignedIn() && isValidId(sessionId) && (request.auth.uid == userId || isOwner());
+      }
+
+      // User notifications
+      match /notifications/{notificationId} {
+        allow get: if isSignedIn() && isValidId(notificationId) && (request.auth.uid == userId || isOwner());
+        allow list: if isSignedIn() && (request.auth.uid == userId || isOwner());
+        allow create: if isSignedIn() && isValidId(notificationId) && incoming().userId == userId && isValidNotification(incoming());
+        allow update: if isSignedIn() && isValidId(notificationId) && (request.auth.uid == userId || isOwner()) && incoming().userId == existing().userId && incoming().createdAt == existing().createdAt && isValidNotification(incoming());
+        allow delete: if isSignedIn() && isValidId(notificationId) && (request.auth.uid == userId || isOwner());
+      }
+    }
+
+    // 2. E2EE Key Bundles (Public keys only)
+    match /key_bundles/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && incoming().userId == userId && isValidKeyBundle(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && incoming().userId == existing().userId && incoming().createdAt == existing().createdAt && isValidKeyBundle(incoming());
+      allow delete: if isOwner() && isValidId(userId);
+    }
+
+    // 3. Special Access Passes (Hashed pass IDs; never enumerable by non-owners)
+    match /access_passes/{passHash} {
+      allow get: if isSignedIn() && isValidId(passHash);
+      allow list: if isOwner();
+      allow create: if isOwner() && isValidId(passHash) && incoming().passHash == passHash && isValidAccessPass(incoming());
+      allow update: if isSignedIn() && isValidId(passHash) && incoming().passHash == existing().passHash && incoming().createdAt == existing().createdAt && isValidAccessPass(incoming()) && (isOwner() || isValidPassRedemptionAction(passHash));
+      allow delete: if isOwner() && isValidId(passHash);
+    }
+
+    match /owner_pass_vault/{passHash} {
+      allow get, list: if isOwner();
+      allow create, update: if isOwner() && isValidId(passHash);
+      allow delete: if isOwner() && isValidId(passHash);
+    }
+
+    match /access_pass_redemptions/{redemptionId} {
+      allow get: if isSignedIn() && isValidId(redemptionId) && (isOwner() || existing().userId == request.auth.uid);
+      allow list: if isOwner() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() &&
+                       isValidId(redemptionId) &&
+                       redemptionId == (incoming().passHash + '_' + request.auth.uid) &&
+                       isValidRedemption(incoming());
+      allow update, delete: if false;
+    }
+
+    // 4. Direct 1:1 Conversations & E2EE Messages
+    match /conversations/{conversationId} {
+      allow get: if isSignedIn() && isValidId(conversationId) && (request.auth.uid in existing().participantUids || isOwner());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participantUids || isOwner());
+      allow create: if isSignedIn() && isValidId(conversationId) && request.auth.uid in incoming().participantUids && isValidConversation(incoming());
+      allow update: if isSignedIn() && isValidId(conversationId) && (request.auth.uid in existing().participantUids || isOwner()) && incoming().participantUids == existing().participantUids && incoming().createdAt == existing().createdAt && isValidConversation(incoming());
+      allow delete: if isOwner() && isValidId(conversationId);
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(messageId) && (request.auth.uid in existing().participantUids || isOwner());
+        allow list: if isSignedIn() && (request.auth.uid in resource.data.participantUids || isOwner());
+        allow create: if isSignedIn() && isValidId(messageId) && incoming().senderId == request.auth.uid && request.auth.uid in incoming().participantUids && isValidDirectMessage(incoming(), conversationId);
+        allow update: if isSignedIn() && isValidId(messageId) && (request.auth.uid in existing().participantUids || isOwner()) && incoming().senderId == existing().senderId && incoming().createdAt == existing().createdAt && isValidDirectMessage(incoming(), conversationId);
+        allow delete: if isOwner() && isValidId(messageId);
+      }
+    }
+
+    // 5. Community Groups, Members, Sender Keys & Messages
+    match /groups/{groupId} {
+      allow get: if isSignedIn() && isValidId(groupId);
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || resource.data.discoverable == true || isOwner());
+      allow create: if isSignedIn() && isValidId(groupId) && incoming().ownerId == request.auth.uid && request.auth.uid in incoming().memberUids && isValidGroup(incoming());
+      allow update: if isSignedIn() &&
+                       isValidId(groupId) &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidGroup(incoming()) &&
+                       (
+                         isOwner() ||
+                         request.auth.uid == existing().ownerId ||
+                         request.auth.uid in existing().adminUids ||
+                         request.auth.uid in existing().moderatorUids ||
+                         request.auth.uid in existing().memberUids ||
+                         // Joining via invite code or discoverable group
+                         (
+                           (existing().discoverable == true || existing().inviteCode.size() > 0) &&
+                           existing().suspended == false &&
+                           existing().locked == false &&
+                           request.auth.uid in incoming().memberUids &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'updatedAt'])
+                         )
+                       );
+      allow delete: if isSignedIn() && isValidId(groupId) && (isOwner() || request.auth.uid == existing().ownerId);
+
+      match /members/{memberUid} {
+        allow get: if isSignedIn() && isValidId(memberUid);
+        allow list: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(memberUid) && isValidGroupMember(incoming(), groupId);
+        allow update: if isSignedIn() && isValidId(memberUid) && incoming().groupId == existing().groupId && incoming().userId == existing().userId && incoming().joinedAt == existing().joinedAt && isValidGroupMember(incoming(), groupId);
+        allow delete: if isSignedIn() && isValidId(memberUid);
+      }
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(messageId) && (request.auth.uid in existing().memberUids || isOwner());
+        allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids || isOwner());
+        allow create: if isSignedIn() && isValidId(messageId) && incoming().senderId == request.auth.uid && request.auth.uid in incoming().memberUids && isValidGroupMessage(incoming(), groupId);
+        allow update: if isSignedIn() && isValidId(messageId) && (request.auth.uid in existing().memberUids || isOwner()) && incoming().senderId == existing().senderId && incoming().createdAt == existing().createdAt && isValidGroupMessage(incoming(), groupId);
+        allow delete: if isOwner() && isValidId(messageId);
+      }
+
+      match /sender_keys/{keyId} {
+        allow get: if isSignedIn() && isValidId(keyId) && (existing().recipientUid == request.auth.uid || existing().senderUid == request.auth.uid || isOwner());
+        allow list: if isSignedIn() && (resource.data.recipientUid == request.auth.uid || resource.data.senderUid == request.auth.uid || isOwner());
+        allow create: if isSignedIn() && isValidId(keyId) && incoming().senderUid == request.auth.uid && isValidGroupSenderKey(incoming(), groupId);
+        allow update: if isSignedIn() && isValidId(keyId) && existing().senderUid == request.auth.uid && isValidGroupSenderKey(incoming(), groupId);
+        allow delete: if isOwner() && isValidId(keyId);
+      }
+    }
+
+    // 5b. Direct Group Invite Lookup (no enumeration by non-owners)
+    match /group_invites/{inviteCode} {
+      allow get: if isSignedIn() && isValidId(inviteCode);
+      allow list: if isOwner();
+      allow create: if isSignedIn() &&
+                       isValidId(inviteCode) &&
+                       incoming().createdBy == request.auth.uid &&
+                       isValidGroupInvite(incoming(), inviteCode) &&
+                       (isOwner() || isGroupManagerAfter(incoming().groupId));
+      allow update: if isSignedIn() &&
+                       isValidId(inviteCode) &&
+                       isValidGroupInvite(incoming(), inviteCode) &&
+                       (isOwner() || isGroupManagerAfter(incoming().groupId));
+      allow delete: if isSignedIn() &&
+                       isValidId(inviteCode) &&
+                       (isOwner() || isGroupManagerAfter(existing().groupId));
+    }
+
+    // 6. Voice & Video Calls (WebRTC Signaling)
+    match /calls/{callId} {
+      allow get: if isSignedIn() && isValidId(callId) && (request.auth.uid in existing().participantUids || isOwner());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participantUids || isOwner());
+      allow create: if isSignedIn() && isValidId(callId) && incoming().callerId == request.auth.uid && request.auth.uid in incoming().participantUids && isValidCall(incoming());
+      allow update: if isSignedIn() && isValidId(callId) && (request.auth.uid in existing().participantUids || isOwner()) && incoming().callerId == existing().callerId && incoming().createdAt == existing().createdAt && isValidCall(incoming());
+      allow delete: if isOwner() && isValidId(callId);
+    }
+
+    // 7. Community Safety Reports & Moderation Actions
+    match /reports/{reportId} {
+      allow get: if isSignedIn() && isValidId(reportId) && (existing().reporterId == request.auth.uid || existing().targetUserId == request.auth.uid || isOwner());
+      allow list: if isOwner() || (isSignedIn() && resource.data.reporterId == request.auth.uid) || (isSignedIn() && resource.data.targetUserId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(reportId) && incoming().reporterId == request.auth.uid && incoming().status == 'PENDING' && isValidReport(incoming());
+      allow update: if isSignedIn() &&
+                       isValidId(reportId) &&
+                       incoming().reporterId == existing().reporterId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidReport(incoming()) &&
+                       (
+                         isOwner() ||
+                         (
+                           request.auth.uid == existing().targetUserId &&
+                           incoming().status == 'APPEALED' &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['appealText', 'status', 'updatedAt'])
+                         )
+                       );
+      allow delete: if isOwner() && isValidId(reportId);
+    }
+
+    match /moderation_actions/{actionId} {
+      allow get: if isSignedIn() && isValidId(actionId) && (existing().targetUserId == request.auth.uid || isOwner());
+      allow list: if isOwner() || (isSignedIn() && resource.data.targetUserId == request.auth.uid);
+      allow create: if isOwner() && isValidId(actionId) && incoming().moderatorId == request.auth.uid && isValidModerationAction(incoming());
+      allow update: if isOwner() && isValidId(actionId) && incoming().createdAt == existing().createdAt && isValidModerationAction(incoming());
+      allow delete: if isOwner() && isValidId(actionId);
+    }
+
+    // 8. Announcements, Immutable Audit Logs, Platform Settings & Admins
+    match /announcements/{announcementId} {
+      allow get: if isSignedIn() && isValidId(announcementId);
+      allow list: if isSignedIn();
+      allow create: if isOwner() && isValidId(announcementId) && incoming().authorId == request.auth.uid && isValidAnnouncement(incoming());
+      allow update: if isOwner() && isValidId(announcementId) && incoming().createdAt == existing().createdAt && isValidAnnouncement(incoming());
+      allow delete: if isOwner() && isValidId(announcementId);
+    }
+
+    match /admin_audit_logs/{logId} {
+      allow get: if isOwner() && isValidId(logId);
+      allow list: if isOwner();
+      allow create: if isOwner() && isValidId(logId) && incoming().adminId == request.auth.uid && isValidAuditLog(incoming());
+      allow update, delete: if false;
+    }
+
+    match /platform_settings/{docId} {
+      allow get: if isSignedIn() && isValidId(docId);
+      allow list: if isOwner();
+      allow create, update: if isOwner() && docId == 'global' && isValidPlatformSettings(incoming());
+      allow delete: if false;
+    }
+
+    match /admins/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isOwner());
+      allow list: if isOwner();
+      allow create: if isOwner() && isValidId(userId) && incoming().userId == userId && isValidAdminRecord(incoming());
+      allow update: if isOwner() && isValidId(userId) && incoming().userId == existing().userId && incoming().createdAt == existing().createdAt && isValidAdminRecord(incoming());
+      allow delete: if isOwner() && isValidId(userId);
+    }
+  }
+}

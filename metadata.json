@@ -1,0 +1,6 @@
+{
+  "name": "Krypt",
+  "description": "Exclusive private messaging and community platform with Special Access Pass onboarding, real-time chats, moderated groups, and an Owner Control Center.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
